@@ -13,7 +13,7 @@ PROJ_DIR=`dirname ${THIS_DIR}`
 CONTAINER="yolo-v1"
 
 nvidia-docker run -it --rm --ipc=host \
-	-p 6006:6006 \
-	-v ${PROJ_DIR}:/workspace \
-	--name ${CONTAINER} \
-	${IMAGE}
+    -p 6006:6006 \
+    -v ${PROJ_DIR}:/work \
+    --name ${CONTAINER} \
+    ${IMAGE}
