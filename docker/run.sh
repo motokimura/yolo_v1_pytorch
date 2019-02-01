@@ -15,7 +15,6 @@ CONTAINER="yolo-v1"
 
 nvidia-docker run -it --rm --ipc=host \
 	-p 6006:6006 \
-	-v ${PROJ_DIR}:/workspace \
+	-v ${PROJ_DIR}:/work \
 	--name ${CONTAINER} \
 	${IMAGE}
-
