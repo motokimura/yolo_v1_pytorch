@@ -6,7 +6,7 @@ from util_layers import Squeeze
 
 
 class DarkNet(nn.Module):
-    def __init__(self)
+    def __init__(self):
         super(DarkNet, self).__init__()
 
         self.features = nn.Sequential(
