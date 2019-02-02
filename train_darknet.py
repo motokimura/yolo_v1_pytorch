@@ -6,6 +6,7 @@ import shutil
 import time
 import warnings
 import sys
+from datetime import datetime
 
 import torch
 import torch.nn as nn
@@ -41,12 +42,12 @@ parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch-size', default=1024, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
@@ -80,6 +81,8 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'multi node data parallel training')
 parser.add_argument('--tb-log-interval', type=int, default=10,
 					help='how many batches to wait before saving training status to TensorBoard (default: 10)')
+parser.add_argument('--tb-log-dir', '-o', default=None,
+					help='directory under `runs` to output TensorBoard event file, reconstructed.png, and original.png (default: <DATETIME>)')
 
 best_acc1 = 0
 
@@ -88,7 +91,9 @@ def main():
     args = parser.parse_args()
 
     # Open TensorBoardX summary writer
-    writer = SummaryWriter(log_dir='.')
+    log_dir = args.tb_log_dir if (args.tb_log_dir is not None) else datetime.now().strftime('%b%d_%H-%M-%S')
+    log_dir = os.path.join('runs', log_dir)
+    writer = SummaryWriter(log_dir=log_dir)
 
     if args.seed is not None:
         random.seed(args.seed)
