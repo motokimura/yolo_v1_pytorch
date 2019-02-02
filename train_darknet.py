@@ -1,3 +1,4 @@
+# From https://github.com/pytorch/examples/blob/master/imagenet/main.py
 import argparse
 import os
 import random
@@ -17,20 +18,24 @@ import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-import torchvision.models as models
+#import torchvision.models as models
+from darknet import DarkNet
 
-model_names = sorted(name for name in models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(models.__dict__[name]))
+from tensorboardX import SummaryWriter
+writer = SummaryWriter(log_dir='.')
+
+#model_names = sorted(name for name in models.__dict__
+#    if name.islower() and not name.startswith("__")
+#    and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                    choices=model_names,
-                    help='model architecture: ' +
-                        ' | '.join(model_names) +
-                        ' (default: resnet18)')
+#parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
+#                    choices=model_names,
+#                    help='model architecture: ' +
+#                        ' | '.join(model_names) +
+#                        ' (default: resnet18)')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=90, type=int, metavar='N',
@@ -55,8 +60,8 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
-parser.add_argument('--pretrained', dest='pretrained', action='store_true',
-                    help='use pre-trained model')
+#parser.add_argument('--pretrained', dest='pretrained', action='store_true',
+#                    help='use pre-trained model')
 parser.add_argument('--world-size', default=-1, type=int,
                     help='number of nodes for distributed training')
 parser.add_argument('--rank', default=-1, type=int,
@@ -74,6 +79,8 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
+parser.add_argument('--tb-log-interval', type=int, default=10,
+					help='how many batches to wait before saving training status to TensorBoard (default: 10)')
 
 best_acc1 = 0
 
@@ -130,12 +137,16 @@ def main_worker(gpu, ngpus_per_node, args):
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
     # create model
-    if args.pretrained:
-        print("=> using pre-trained model '{}'".format(args.arch))
-        model = models.__dict__[args.arch](pretrained=True)
-    else:
-        print("=> creating model '{}'".format(args.arch))
-        model = models.__dict__[args.arch]()
+    #if args.pretrained:
+    #    print("=> using pre-trained model '{}'".format(args.arch))
+    #    model = models.__dict__[args.arch](pretrained=True)
+    #else:
+    #    print("=> creating model '{}'".format(args.arch))
+    #    model = models.__dict__[args.arch]()
+
+    # create model
+    print("=> creating model DarkNet")
+    model = DarkNet()
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -224,7 +235,7 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers, pin_memory=True)
 
     if args.evaluate:
-        validate(val_loader, model, criterion, args)
+        validate(val_loader, model, criterion, None, args)
         return
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -236,7 +247,7 @@ def main_worker(gpu, ngpus_per_node, args):
         train(train_loader, model, criterion, optimizer, epoch, args)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, args)
+        acc1 = validate(val_loader, model, criterion, epoch, args)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -300,9 +311,16 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
                   'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                    epoch, i, len(train_loader), batch_time=batch_time,
                    data_time=data_time, loss=losses, top1=top1, top5=top5))
+        
+        # TensorBoard
+        n_iter = epoch * len(train_loader) + i
+        if n_iter % args.tb_log_interval == 0:
+            writer.add_scalar('train/loss', losses.val, n_iter)
+            writer.add_scalar('train/top1', top1.val, n_iter)
+            writer.add_scalar('train/top5', top5.val, n_iter)
 
 
-def validate(val_loader, model, criterion, args):
+def validate(val_loader, model, criterion, epoch, args):
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -344,6 +362,11 @@ def validate(val_loader, model, criterion, args):
         print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
               .format(top1=top1, top5=top5))
 
+        # TensorBoard
+        writer.add_scalar('test/loss', losses.avg, epoch + 1)
+        writer.add_scalar('test/top1', top1.avg, epoch + 1)
+        writer.add_scalar('test/top5', top5.avg, epoch + 1)
+
     return top1.avg
 
 
@@ -376,6 +399,9 @@ def adjust_learning_rate(optimizer, epoch, args):
     lr = args.lr * (0.1 ** (epoch // 30))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+
+    # TensorBoard
+    writer.add_scalar('lr', lr, epoch)
 
 
 def accuracy(output, target, topk=(1,)):
