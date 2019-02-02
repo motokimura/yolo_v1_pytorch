@@ -9,7 +9,7 @@ class DarkNet(nn.Module):
     def __init__(self, conv_only=False):
         super(DarkNet, self).__init__()
 
-        self.conv = self._make_conv_layers()
+        self.features = self._make_conv_layers()
         if not conv_only:
             self.fc = self._make_fc_layers()
 
@@ -76,7 +76,7 @@ class DarkNet(nn.Module):
         )
     
     def forward(self, x):
-        x = self.conv(x)
+        x = self.features(x)
         if not self.conv_only:
             x = self.fc(x)
         return x

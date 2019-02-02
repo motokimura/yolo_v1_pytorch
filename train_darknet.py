@@ -22,7 +22,6 @@ import torchvision.datasets as datasets
 from darknet import DarkNet
 
 from tensorboardX import SummaryWriter
-writer = SummaryWriter(log_dir='.')
 
 #model_names = sorted(name for name in models.__dict__
 #    if name.islower() and not name.startswith("__")
@@ -88,6 +87,9 @@ best_acc1 = 0
 def main():
     args = parser.parse_args()
 
+    # Open TensorBoardX summary writer
+    writer = SummaryWriter(log_dir='.')
+
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
@@ -114,13 +116,16 @@ def main():
         args.world_size = ngpus_per_node * args.world_size
         # Use torch.multiprocessing.spawn to launch distributed processes: the
         # main_worker process function
-        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
+        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, writer, args))
     else:
         # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
+        main_worker(args.gpu, ngpus_per_node, writer, args)
+
+    # Close TensorBoardX summary writer
+    writer.close()
 
 
-def main_worker(gpu, ngpus_per_node, args):
+def main_worker(gpu, ngpus_per_node, writer, args):
     global best_acc1
     args.gpu = gpu
 
@@ -176,7 +181,8 @@ def main_worker(gpu, ngpus_per_node, args):
         #    model.cuda()
         #else:
         #    model = torch.nn.DataParallel(model).cuda()
-        model = torch.nn.DataParallel(model).cuda()
+        model.features = torch.nn.DataParallel(model.features)
+        model.cuda()
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -242,13 +248,13 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, epoch, args)
+        adjust_learning_rate(optimizer, epoch, writer, args)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        train(train_loader, model, criterion, optimizer, epoch, writer, args)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, epoch, args)
+        acc1 = validate(val_loader, model, criterion, epoch, writer, args)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -265,7 +271,7 @@ def main_worker(gpu, ngpus_per_node, args):
             }, is_best)
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(train_loader, model, criterion, optimizer, epoch, writer, args):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -321,7 +327,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             writer.add_scalar('train/top5', top5.val, n_iter)
 
 
-def validate(val_loader, model, criterion, epoch, args):
+def validate(val_loader, model, criterion, epoch, writer, args):
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -395,7 +401,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def adjust_learning_rate(optimizer, epoch, args):
+def adjust_learning_rate(optimizer, epoch, writer, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = args.lr * (0.1 ** (epoch // 30))
     for param_group in optimizer.param_groups:
