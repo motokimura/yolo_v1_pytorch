@@ -36,6 +36,8 @@ parser.add_argument('data', metavar='DIR',
 #                    help='model architecture: ' +
 #                        ' | '.join(model_names) +
 #                        ' (default: resnet18)')
+parser.add_argument('--no-bn', dest='bn', action='store_false',
+                    help='Use batch normalization layers')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=90, type=int, metavar='N',
@@ -155,8 +157,8 @@ def main_worker(gpu, ngpus_per_node, writer, args):
     #    model = models.__dict__[args.arch]()
 
     # create model
-    print("=> creating model DarkNet")
-    model = DarkNet()
+    print("=> creating model DarkNet (bn: {}) ...".format(args.bn))
+    model = DarkNet(bn=args.bn)
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
