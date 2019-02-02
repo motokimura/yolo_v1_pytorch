@@ -6,7 +6,7 @@ from util_layers import Squeeze
 
 
 class DarkNet(nn.Module):
-    def __init__(self, conv_only=False):
+    def __init__(self, conv_only=False, init_weight=True):
         super(DarkNet, self).__init__()
 
         self.features = nn.Sequential(
@@ -66,7 +66,10 @@ class DarkNet(nn.Module):
                 Squeeze(),
                 nn.Linear(1024, 1000)
             )
-        
+
+        if init_weight:
+            self._initialize_weights()
+
         self.conv_only = conv_only
 
     def forward(self, x):
@@ -74,3 +77,16 @@ class DarkNet(nn.Module):
         if not self.conv_only:
             x = self.fc(x)
         return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
