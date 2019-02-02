@@ -14,7 +14,7 @@ class DarkNet(nn.Module):
             self.fc = self._make_fc_layers()
 
         self.conv_only = conv_only
-    
+
     def _make_conv_layers(self):
         conv = nn.Sequential(
             nn.Conv2d(3, 64, 7, stride=2, padding=3),
@@ -74,7 +74,8 @@ class DarkNet(nn.Module):
             Squeeze(),
             nn.Linear(1024, 1000)
         )
-    
+        return fc
+
     def forward(self, x):
         x = self.features(x)
         if not self.conv_only:
