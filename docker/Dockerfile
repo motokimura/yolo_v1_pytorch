@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         vim \
         zip \
         wget \
+        nano \
         ca-certificates \
         libjpeg-dev \
         libpng-dev \
