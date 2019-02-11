@@ -13,7 +13,8 @@ import math
 # Check if GPU devices are available.
 use_gpu = torch.cuda.is_available()
 print('use_gpu: {}'.format(use_gpu))
-print('cuda device, device count: ', torch.cuda.current_device(), torch.cuda.device_count())
+print('cuda current_device: {}'.format(torch.cuda.current_device()))
+print('cuda device_count: {}'.format(torch.cuda.device_count()))
 
 # Path to data dir.
 image_dir = 'data/VOC_allimgs/'
@@ -61,7 +62,7 @@ src_state_dict = torch.load(checkpoint_path)['state_dict']
 dst_state_dict = darknet.state_dict()
 
 for k in dst_state_dict.keys():
-    print(k)
+    print('Loading weight of ', k)
     dst_state_dict[k] = src_state_dict[k]
 darknet.load_state_dict(dst_state_dict)
 
@@ -119,7 +120,7 @@ for epoch in range(num_epochs):
         loss.backward()
         optimizer.step()
         if i % 5 == 0:
-            print('Epoch [%d/%d] Iter [%d/%d], LR: %.6f, Loss: %.4f, Average Loss: %.4f'
+            print('Epoch [%d/%d], Iter [%d/%d], LR: %.6f, Loss: %.4f, Average Loss: %.4f'
             % (epoch, num_epochs, i, len(train_loader), lr, loss_this_iter, total_loss / float(total_batch)))
 
     # Validation.
