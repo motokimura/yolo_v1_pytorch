@@ -1,6 +1,14 @@
 tmp/
-data/
+data/*
+!data/voc2007.txt
+!data/voc2007test.txt
+!data/voc2012.txt
+models/
 runs/
+
+*.pth
+*.pth.tar
+log.txt
 
 # Created by https://www.gitignore.io/api/python,visualstudiocode
 # Edit at https://www.gitignore.io/?templates=python,visualstudiocode
