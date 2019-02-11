@@ -103,7 +103,7 @@ class Loss(nn.Module):
             noobj_conf_mask[:, 4 + b*5] = 1 # noobj_conf_mask[:, 4] = 1; noobj_conf_mask[:, 9] = 1
         noobj_pred_conf = noobj_pred[noobj_conf_mask]       # [n_noobj, 2=len([conf1, conf2])]
         noobj_target_conf = noobj_target[noobj_conf_mask]   # [n_noobj, 2=len([conf1, conf2])]
-        loss_noobj = F.mse_loss(noobj_pred_conf, noobj_target_conf, reduction='sum')
+        loss_noobj = F.mse_loss(noobj_pred_conf, noobj_target_conf, reduction='mean')
 
         # Compute loss for the cells with objects.
         coord_response_mask = torch.cuda.ByteTensor(bbox_target.size()).fill_(0)    # [n_coord x B, 5]
@@ -143,12 +143,12 @@ class Loss(nn.Module):
         bbox_pred_response = bbox_pred[coord_response_mask].view(-1, 5)      # [n_response, 5]
         bbox_target_response = bbox_target[coord_response_mask].view(-1, 5)  # [n_response, 5], only the first 4=(x, y, w, h) are used
         target_iou = bbox_target_iou[coord_response_mask].view(-1, 5)        # [n_response, 5], only the last 1=(conf,) is used
-        loss_xy = F.mse_loss(bbox_pred_response[:, :2], bbox_target_response[:, :2], reduction='sum')
-        loss_wh = F.mse_loss(torch.sqrt(bbox_pred_response[:, 2:4]), torch.sqrt(bbox_target_response[:, 2:4]), reduction='sum')
-        loss_obj = F.mse_loss(bbox_pred_response[:, 4], target_iou[:, 4], reduction='sum')
+        loss_xy = F.mse_loss(bbox_pred_response[:, :2], bbox_target_response[:, :2], reduction='mean')
+        loss_wh = F.mse_loss(torch.sqrt(bbox_pred_response[:, 2:4]), torch.sqrt(bbox_target_response[:, 2:4]), reduction='mean')
+        loss_obj = F.mse_loss(bbox_pred_response[:, 4], target_iou[:, 4], reduction='mean')
 
         # Class probability loss for the cells which contain objects.
-        loss_class = F.mse_loss(class_pred, class_target, reduction='sum')
+        loss_class = F.mse_loss(class_pred, class_target, reduction='mean')
 
         # Total loss
         loss = self.lambda_coord * (loss_xy + loss_wh) + loss_obj + self.lambda_noobj * loss_noobj + loss_class

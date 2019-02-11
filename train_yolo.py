@@ -25,7 +25,7 @@ val_label = 'data/voc2007test.txt'
 checkpoint_path = 'models/ckpt_darknet_bn.pth.tar'
 
 # Hyper parameters.
-initial_lr = 1.0e-5
+initial_lr = 1.0e-3
 momentum = 0.9
 weight_decay = 5.0e-4
 num_epochs = 135
@@ -36,14 +36,8 @@ def get_lr(epoch, current_lr):
     if epoch == 0:
         lr = initial_lr
     elif epoch == 1:
-        lr = 0.0001
-    elif epoch == 2:
-        lr = 0.0005
-    elif epoch == 3:
-        lr = 0.001
-    elif epoch == 4:
         lr = 0.005
-    elif epoch == 5:
+    elif epoch == 2:
         lr = 0.01
     elif epoch == 75:
         lr = 0.001
@@ -109,7 +103,6 @@ for epoch in range(num_epochs):
     total_loss = 0.0
 
     for i, (imgs, targets) in enumerate(train_loader):
-        batch_size_this_iter = imgs.size(0)
         imgs = Variable(imgs)
         targets = Variable(targets)
         if use_gpu:
@@ -117,7 +110,7 @@ for epoch in range(num_epochs):
 
         preds = yolo(imgs)
         loss = criterion(preds, targets)
-        loss_this_iter = loss.item() / float(batch_size_this_iter)
+        loss_this_iter = loss.item()
         total_loss += loss_this_iter
 
         optimizer.zero_grad()
@@ -132,7 +125,6 @@ for epoch in range(num_epochs):
     val_loss = 0.0
 
     for i, (imgs, targets) in enumerate(val_loader):
-        batch_size_this_iter = imgs.size(0)
         imgs = Variable(imgs)
         targets = Variable(targets)
         if use_gpu:
@@ -141,7 +133,7 @@ for epoch in range(num_epochs):
         with torch.no_grad():
             preds = yolo(imgs)
         loss = criterion(preds, targets)
-        loss_this_iter = loss.item() / float(batch_size_this_iter)
+        loss_this_iter = loss.item()
         val_loss += loss_this_iter
     val_loss /= float(len(val_loader))
 
