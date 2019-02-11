@@ -26,6 +26,7 @@ val_label = 'data/voc2007test.txt'
 checkpoint_path = 'models/ckpt_darknet_bn.pth.tar'
 
 # Hyper parameters.
+init_lr = 0.001
 base_lr = 0.01
 momentum = 0.9
 weight_decay = 5.0e-4
@@ -35,7 +36,7 @@ batch_size = 64
 # Learning rate scheduling.
 def update_lr(optimizer, epoch, burnin_base, burnin_exp=4.0):
     if epoch == 0:
-        lr = base_lr * math.pow(burnin_base, burnin_exp)
+        lr = init_lr + (base_lr - init_lr) * math.pow(burnin_base, burnin_exp)
     elif epoch == 1:
         lr = base_lr
     elif epoch == 75:
@@ -73,7 +74,7 @@ if use_gpu:
 
 # Setup loss and optimizer.
 criterion = Loss(feature_size=yolo.feature_size)
-optimizer = torch.optim.SGD(yolo.parameters(), lr=base_lr, momentum=momentum, weight_decay=weight_decay)
+optimizer = torch.optim.SGD(yolo.parameters(), lr=init_lr, momentum=momentum, weight_decay=weight_decay)
 
 # Load Pascal-VOC dataset.
 train_dataset = VOCDataset(True, image_dir, train_label)
@@ -118,8 +119,8 @@ for epoch in range(num_epochs):
         loss.backward()
         optimizer.step()
         if i % 5 == 0:
-            print('Epoch [%d/%d], LR: %.6f, Iter [%d/%d] Loss: %.4f, Average Loss: %.4f'
-            % (epoch, num_epochs, lr, i, len(train_loader), loss_this_iter, total_loss / float(total_batch)))
+            print('Epoch [%d/%d] Iter [%d/%d], LR: %.6f, Loss: %.4f, Average Loss: %.4f'
+            % (epoch, num_epochs, i, len(train_loader), lr, loss_this_iter, total_loss / float(total_batch)))
 
     # Validation.
     yolo.eval()
