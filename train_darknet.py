@@ -84,7 +84,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 parser.add_argument('--tb-log-interval', type=int, default=10,
 					help='how many batches to wait before saving training status to TensorBoard (default: 10)')
 parser.add_argument('--tb-log-dir', '-o', default=None,
-					help='directory under `runs` to output TensorBoard event file, reconstructed.png, and original.png (default: <DATETIME>)')
+					help='directory under `results/darknet` to output TensorBoard event file and model weight file (default: <DATETIME>)')
 
 best_acc1 = 0
 
@@ -94,7 +94,7 @@ def main():
 
     # Open TensorBoardX summary writer
     log_dir = args.tb_log_dir if (args.tb_log_dir is not None) else datetime.now().strftime('%b%d_%H-%M-%S')
-    log_dir = os.path.join('runs', log_dir)
+    log_dir = os.path.join('results/darknet', log_dir)
     writer = SummaryWriter(log_dir=log_dir)
 
     if args.seed is not None:
@@ -123,16 +123,16 @@ def main():
         args.world_size = ngpus_per_node * args.world_size
         # Use torch.multiprocessing.spawn to launch distributed processes: the
         # main_worker process function
-        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, writer, args))
+        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, writer, log_dir, args))
     else:
         # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, writer, args)
+        main_worker(args.gpu, ngpus_per_node, writer, log_dir, args)
 
     # Close TensorBoardX summary writer
     writer.close()
 
 
-def main_worker(gpu, ngpus_per_node, writer, args):
+def main_worker(gpu, ngpus_per_node, writer, log_dir, args):
     global best_acc1
     args.gpu = gpu
 
@@ -275,7 +275,7 @@ def main_worker(gpu, ngpus_per_node, writer, args):
                 'state_dict': model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
-            }, is_best)
+            }, is_best, log_dir)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, writer, args):
@@ -384,10 +384,12 @@ def validate(val_loader, model, criterion, epoch, writer, args):
     return top1.avg
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    torch.save(state, filename)
+def save_checkpoint(state, is_best, log_dir, filename='checkpoint.pth.tar'):
+    path = os.path.join(log_dir, filename)
+    torch.save(state, path)
     if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+        path_best = os.path.join(log_dir, 'model_best.pth.tar')
+        shutil.copyfile(path, path_best)
 
 
 class AverageMeter(object):

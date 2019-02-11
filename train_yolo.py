@@ -9,6 +9,10 @@ from loss import Loss
 
 import numpy as np
 import math
+from datetime import datetime
+
+from tensorboardX import SummaryWriter
+
 
 # Check if GPU devices are available.
 use_gpu = torch.cuda.is_available()
@@ -24,9 +28,13 @@ train_label = ['data/voc2007.txt', 'data/voc2012.txt']
 val_label = 'data/voc2007test.txt'
 
 # Path to checkpoint file containing pre-trained DarkNet weight.
-checkpoint_path = 'models/ckpt_darknet_bn.pth.tar'
+checkpoint_path = 'weights/darknet/model_best.pth.tar'
 
-# Hyper parameters.
+# Frequency to print/log the results.
+print_freq = 5
+tb_log_freq = 5
+
+# Training hyper parameters.
 init_lr = 0.001
 base_lr = 0.01
 momentum = 0.9
@@ -86,8 +94,13 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_w
 
 print('Number of training images: ', len(train_dataset))
 
+# Open TensorBoardX summary writer
+log_dir = datetime.now().strftime('%b%d_%H-%M-%S')
+log_dir = os.path.join('results/yolo', log_dir)
+writer = SummaryWriter(log_dir=log_dir)
+
 # Training loop.
-logfile = open('log.txt', 'w')
+logfile = open(os.path.join(log_dir, 'log.txt'), 'w')
 best_val_loss = np.inf
 
 for epoch in range(num_epochs):
@@ -104,24 +117,35 @@ for epoch in range(num_epochs):
         update_lr(optimizer, epoch, float(i) / float(len(train_loader) - 1))
         lr = get_lr(optimizer)
 
+        # Load data as a batch.
         batch_size_this_iter = imgs.size(0)
         imgs = Variable(imgs)
         targets = Variable(targets)
         if use_gpu:
             imgs, targets = imgs.cuda(), targets.cuda()
 
+        # Forward to compute loss.
         preds = yolo(imgs)
         loss = criterion(preds, targets)
         loss_this_iter = loss.item()
         total_loss += loss_this_iter * batch_size_this_iter
         total_batch += batch_size_this_iter
 
+        # Backward to update model weight.
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        if i % 5 == 0:
+
+        # Print current loss.
+        if i % print_freq == 0:
             print('Epoch [%d/%d], Iter [%d/%d], LR: %.6f, Loss: %.4f, Average Loss: %.4f'
             % (epoch, num_epochs, i, len(train_loader), lr, loss_this_iter, total_loss / float(total_batch)))
+
+        # TensorBoard.
+        n_iter = epoch * len(train_loader) + i
+        if n_iter % tb_log_freq == 0:
+            writer.add_scalar('train/loss', loss_this_iter, n_iter)
+            writer.add_scalar('lr', lr, n_iter)
 
     # Validation.
     yolo.eval()
@@ -129,12 +153,14 @@ for epoch in range(num_epochs):
     total_batch = 0
 
     for i, (imgs, targets) in enumerate(val_loader):
+        # Load data as a batch.
         batch_size_this_iter = imgs.size(0)
         imgs = Variable(imgs)
         targets = Variable(targets)
         if use_gpu:
             imgs, targets = imgs.cuda(), targets.cuda()
 
+        # Forward to compute validation loss.
         with torch.no_grad():
             preds = yolo(imgs)
         loss = criterion(preds, targets)
@@ -146,13 +172,17 @@ for epoch in range(num_epochs):
     # Save results.
     logfile.writelines(str(epoch + 1) + '\t' + str(val_loss) + '\n')
     logfile.flush()
-    torch.save(yolo.state_dict(),'yolo.pth')
-
+    torch.save(yolo.state_dict(), os.path.join(log_dir, 'model_latest.pth'))
     if best_val_loss > val_loss:
         best_val_loss = val_loss
-        torch.save(yolo.state_dict(), 'yolo_best.pth')
+        torch.save(yolo.state_dict(), os.path.join(log_dir, 'model_best.pth'))
 
+    # Print.
     print('Epoch [%d/%d], Val Loss: %.4f, Best Val Loss: %.4f'
     % (epoch + 1, num_epochs, val_loss, best_val_loss))
 
+    # TensorBoard.
+    writer.add_scalar('test/loss', val_loss, epoch + 1)
+
+write.close()
 logfile.close()
