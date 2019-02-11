@@ -185,5 +185,5 @@ for epoch in range(num_epochs):
     # TensorBoard.
     writer.add_scalar('test/loss', val_loss, epoch + 1)
 
-write.close()
+writer.close()
 logfile.close()
