@@ -62,7 +62,7 @@ src_state_dict = torch.load(checkpoint_path)['state_dict']
 dst_state_dict = darknet.state_dict()
 
 for k in dst_state_dict.keys():
-    print('Loading weight of ', k)
+    print('Loading weight of', k)
     dst_state_dict[k] = src_state_dict[k]
 darknet.load_state_dict(dst_state_dict)
 
