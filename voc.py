@@ -22,7 +22,7 @@ class VOCDataset(Dataset):
 
         self.to_tensor = transforms.ToTensor()
 
-        if isinstance(label_txt, list):
+        if isinstance(label_txt, list) or isinstance(label_txt, tuple):
             # cat multiple list files together.
             # This is useful for VOC2007/VOC2012 combination.
             tmp_file = '/tmp/label.txt'
@@ -87,7 +87,7 @@ class VOCDataset(Dataset):
         cv2.imwrite(os.path.join(debug_dir, 'test_{}.jpg'.format(idx)), img_show)
 
         h, w, _ = img.shape
-        boxes /= torch.Tensor([[w, h, w, h]]).expand_as(boxes) # normalize (x1, y1, x2, y2) with image size.
+        boxes /= torch.Tensor([[w, h, w, h]]).expand_as(boxes) # normalize (x1, y1, x2, y2) w.r.t. image width/height.
         target = self.encode(boxes, labels) # [S, S, 5 x B + C]
 
         img = cv2.resize(img, dsize=(self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
@@ -103,7 +103,7 @@ class VOCDataset(Dataset):
     def encode(self, boxes, labels):
         """ Encode box coordinates and class labels as one target tensor.
         Args:
-            boxes: (tensor) [[x1, y1, x2, y2]_obj1, ...], normalized from 0.0 to 1.0 with image width/height.
+            boxes: (tensor) [[x1, y1, x2, y2]_obj1, ...], normalized from 0.0 to 1.0 w.r.t. image width/height.
             labels: (tensor) [c_obj1, c_obj2, ...]
         Returns:
             An encoded tensor sized [S, S, 5 x B + C], 5=(x, y, w, h, conf)
@@ -122,13 +122,13 @@ class VOCDataset(Dataset):
             ij = (xy / cell_size).ceil() - 1.0
             i, j = int(ij[0]), int(ij[1]) # y & x index which represents its location on the grid.
             x0y0 = ij * cell_size # x & y of the cell left-top corner.
-            norm_xy = (xy - x0y0) / cell_size # x & y of the box on the cell, normalized from 0.0 to 1.0.
+            xy_normalized = (xy - x0y0) / cell_size # x & y of the box on the cell, normalized from 0.0 to 1.0.
 
             # TBM, remove redundant dimensions from target tensor.
             # To remove these, loss implementation also has to be modified.
             for k in range(B):
                 s = 5 * k
-                target[j, i, s  :s+2] = norm_xy
+                target[j, i, s  :s+2] = xy_normalized
                 target[j, i, s+2:s+4] = wh
                 target[j, i, s+4    ] = 1.0
             target[j, i, 5*B + label] = 1.0

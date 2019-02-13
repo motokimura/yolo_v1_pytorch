@@ -17,15 +17,15 @@ from tensorboardX import SummaryWriter
 
 # Check if GPU devices are available.
 use_gpu = torch.cuda.is_available()
-print('use_gpu: {}'.format(use_gpu))
-print('cuda current_device: {}'.format(torch.cuda.current_device()))
-print('cuda device_count: {}'.format(torch.cuda.device_count()))
+assert use_gpu, 'Current implementation does not support CPU mode. Enable CUDA.'
+print('CUDA current_device: {}'.format(torch.cuda.current_device()))
+print('CUDA device_count: {}'.format(torch.cuda.device_count()))
 
 # Path to data dir.
 image_dir = 'data/VOC_allimgs/'
 
 # Path to label files.
-train_label = ['data/voc2007.txt', 'data/voc2012.txt']
+train_label = ('data/voc2007.txt', 'data/voc2012.txt')
 val_label = 'data/voc2007test.txt'
 
 # Path to checkpoint file containing pre-trained DarkNet weight.
@@ -78,9 +78,7 @@ darknet.load_state_dict(dst_state_dict)
 # Load YOLO model.
 yolo = YOLOv1(darknet.features)
 yolo.conv_layers = torch.nn.DataParallel(yolo.conv_layers)
-
-if use_gpu:
-    yolo.cuda()
+yolo.cuda()
 
 # Setup loss and optimizer.
 criterion = Loss(feature_size=yolo.feature_size)
@@ -122,8 +120,7 @@ for epoch in range(num_epochs):
         batch_size_this_iter = imgs.size(0)
         imgs = Variable(imgs)
         targets = Variable(targets)
-        if use_gpu:
-            imgs, targets = imgs.cuda(), targets.cuda()
+        imgs, targets = imgs.cuda(), targets.cuda()
 
         # Forward to compute loss.
         preds = yolo(imgs)
@@ -158,8 +155,7 @@ for epoch in range(num_epochs):
         batch_size_this_iter = imgs.size(0)
         imgs = Variable(imgs)
         targets = Variable(targets)
-        if use_gpu:
-            imgs, targets = imgs.cuda(), targets.cuda()
+        imgs, targets = imgs.cuda(), targets.cuda()
 
         # Forward to compute validation loss.
         with torch.no_grad():
