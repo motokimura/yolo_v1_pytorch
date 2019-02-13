@@ -3,6 +3,7 @@ data/*
 !data/voc2007.txt
 !data/voc2007test.txt
 !data/voc2012.txt
+!data/samples
 weights/
 results/
 
