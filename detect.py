@@ -35,12 +35,12 @@ VOC_CLASS_BGR = {
 }
 
 
-def visualize_boxes(image_bgr, boxes_detected, class_names_detected, probs_detected, name_bgr_dict=None, line_thickness=2):
+def visualize_boxes(image_bgr, boxes, class_names, probs, name_bgr_dict=None, line_thickness=2):
     if name_bgr_dict is None:
         name_bgr_dict = VOC_CLASS_BGR
 
     image_boxes = image_bgr.copy()
-    for box, class_name, prob in zip(boxes_detected, class_names_detected, probs_detected):
+    for box, class_name, prob in zip(boxes, class_names, probs):
         # Draw box on the image.
         left_top, right_bottom = box
         left, top = int(left_top[0]), int(left_top[1])
@@ -58,7 +58,7 @@ def visualize_boxes(image_bgr, boxes_detected, class_names_detected, probs_detec
         x2y2 = (x + text_w + line_thickness, y + text_h + line_thickness + baseline)
         cv2.rectangle(image_boxes, x1y1, x2y2, bgr, -1)
         cv2.putText(image_boxes, text, (x + line_thickness, y + 2*baseline + line_thickness),
-            cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4, color=(255,255,255), thickness=1, lineType=8)
+            cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4, color=(255, 255, 255), thickness=1, lineType=8)
 
     return image_boxes
 
@@ -66,7 +66,7 @@ def visualize_boxes(image_bgr, boxes_detected, class_names_detected, probs_detec
 class YOLODetector:
     def __init__(self,
         model_path, class_name_list=None, mean_rgb=[122.67891434, 116.66876762, 104.00698793],
-        conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.4,
+        conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,
         gpu_id=0):
 
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
@@ -139,8 +139,8 @@ class YOLODetector:
         # Non maximum supression.
         # TBM, NMS should be applied to confidence (not class probability) for each class independently..
         probs = confidences * class_scores
-        mask = self.nms(boxes_normalized, probs)
-        boxes_normalized, class_labels, probs = boxes_normalized[mask], class_labels[mask], probs[mask]
+        ids = self.nms(boxes_normalized, probs)
+        boxes_normalized, class_labels, probs = boxes_normalized[ids], class_labels[ids], probs[ids]
 
         boxes_detected, class_names_detected, probs_detected = [], [], []
         for b in range(boxes_normalized.size(0)):
@@ -166,13 +166,13 @@ class YOLODetector:
         Args:
             pred_tensor: (tensor) tensor to decode sized [S, S, 5 x B + C], 5=(x, y, w, h, conf)
         Returns:
-            boxes_detected: (tensor) [[x1, y1, x2, y2]_obj1, ...]. Normalized from 0.0 to 1.0 w.r.t. image width/height, sized [n_boxes, 4].
+            boxes: (tensor) [[x1, y1, x2, y2]_obj1, ...]. Normalized from 0.0 to 1.0 w.r.t. image width/height, sized [n_boxes, 4].
             labels: (tensor) class labels for each detected boxe, sized [n_boxes,].
             confidences: (tensor) objectness confidences for each detected box, sized [n_boxes,].
             class_scores: (tensor) scores for most likely class for each detected box, sized [n_boxes,].
         """
         S, B, C = self.S, self.B, self.C
-        boxes_detected, labels, confidences, class_scores = [], [], [], []
+        boxes, labels, confidences, class_scores = [], [], [], []
 
         cell_size = 1.0 / float(S)
 
@@ -202,24 +202,24 @@ class YOLODetector:
                     box_xyxy[2:] = xy_normalized + 0.5 * wh_normalized # right-bottom corner (x2, y2).
 
                     # Append result to the lists.
-                    boxes_detected.append(box_xyxy)
+                    boxes.append(box_xyxy)
                     labels.append(class_label)
                     confidences.append(conf)
                     class_scores.append(class_score)
 
-        if len(boxes_detected) > 0:
-            boxes_detected = torch.stack(boxes_detected, 0)               # [n_boxes, 4]
+        if len(boxes) > 0:
+            boxes = torch.stack(boxes, 0) # [n_boxes, 4]
             labels = torch.stack(labels, 0)             # [n_boxes, ]
             confidences = torch.stack(confidences, 0)   # [n_boxes, ]
             class_scores = torch.stack(class_scores, 0) # [n_boxes, ]
         else:
             # If no box found, return empty tensors.
-            boxes_detected = torch.FloatTensor(0, 4)
+            boxes = torch.FloatTensor(0, 4)
             labels = torch.LongTensor(0)
             confidences = torch.FloatTensor(0)
             class_scores = torch.FloatTensor(0)
 
-        return boxes_detected, labels, confidences, class_scores
+        return boxes, labels, confidences, class_scores
 
     def nms(self, boxes, scores):
         """ Apply non maximum supression.
@@ -235,12 +235,12 @@ class YOLODetector:
         areas = (x2 - x1) * (y2 - y1) # [n,]
 
         _, ids_sorted = scores.sort(0, descending=True) # [n,]
-        mask = []
+        ids = []
         while ids_sorted.numel() > 0:
             # Assume `ids_sorted` size is [m,] in the beginning of this iter.
 
             i = ids_sorted.item() if (ids_sorted.numel() == 1) else ids_sorted[0]
-            mask.append(i)
+            ids.append(i)
 
             if ids_sorted.numel() == 1:
                 break # If only one box is left (i.e., no box to supress), break.
@@ -262,7 +262,7 @@ class YOLODetector:
                 break # If no box left, break.
             ids_sorted = ids_sorted[ids_keep+1] # `+1` is needed because `ids_sorted[0] = i`.
 
-        return torch.LongTensor(mask)
+        return torch.LongTensor(ids)
 
 
 if __name__ == '__main__':
@@ -275,16 +275,16 @@ if __name__ == '__main__':
     gpu_id = 0
 
     # Load model.
-    yolo = YOLODetector(model_path, gpu_id=gpu_id)
+    yolo = YOLODetector(model_path, gpu_id=gpu_id, conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5)
 
     # Load image.
     image = cv2.imread(image_path)
 
     # Detect objects.
-    boxes_detected, class_names_detected, probs_detected = yolo.detect(image)
+    boxes, class_names, probs = yolo.detect(image)
 
     # Visualize.
-    image_boxes = visualize_boxes(image, boxes_detected, class_names_detected, probs_detected)
+    image_boxes = visualize_boxes(image, boxes, class_names, probs)
 
     # Output detection result as an image.
     cv2.imwrite(out_path, image_boxes)
