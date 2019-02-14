@@ -132,16 +132,34 @@ class YOLODetector:
         pred_tensor = pred_tensor.squeeze(0) # squeeze batch dimension.
 
         # Get detected boxes_detected, labels, confidences, class-scores.
-        boxes_normalized, class_labels, confidences, class_scores = self.decode(pred_tensor)
-        if boxes_normalized.size(0) == 0:
+        boxes_normalized_all, class_labels_all, confidences_all, class_scores_all = self.decode(pred_tensor)
+        if boxes_normalized_all.size(0) == 0:
             return [], [], [] # if no box found, return empty lists.
 
-        # Non maximum supression.
-        # TBM, NMS should be applied to confidence (not class probability) for each class independently..
-        probs = confidences * class_scores
-        ids = self.nms(boxes_normalized, probs)
-        boxes_normalized, class_labels, probs = boxes_normalized[ids], class_labels[ids], probs[ids]
+        # Apply non maximum supression for boxes of each class.
+        boxes_normalized, class_labels, probs = [], [], []
 
+        for class_label in range(len(self.class_name_list)):
+            mask = (class_labels_all == class_label)
+            if torch.sum(mask) == 0:
+                continue # if no box found, skip that class.
+
+            boxes_normalized_masked = boxes_normalized_all[mask]
+            class_labels_maked = class_labels_all[mask]
+            confidences_masked = confidences_all[mask]
+            class_scores_masked = class_scores_all[mask]
+
+            ids = self.nms(boxes_normalized_masked, confidences_masked)
+
+            boxes_normalized.append(boxes_normalized_masked[ids])
+            class_labels.append(class_labels_maked[ids])
+            probs.append(confidences_masked[ids] * class_scores_masked[ids])
+
+        boxes_normalized = torch.cat(boxes_normalized, 0)
+        class_labels = torch.cat(class_labels, 0)
+        probs = torch.cat(probs, 0)
+
+        # Postprocess for box, labels, probs.
         boxes_detected, class_names_detected, probs_detected = [], [], []
         for b in range(boxes_normalized.size(0)):
             box_normalized = boxes_normalized[b]
@@ -267,7 +285,7 @@ class YOLODetector:
 
 if __name__ == '__main__':
     # Paths to input/output images.
-    image_path = 'data/test_samples/006902.jpg'
+    image_path = 'data/test_samples/009046.jpg'
     out_path = 'result.png'
     # Path to the yolo weight.
     model_path = 'weights/yolo/model_best.pth'
@@ -275,7 +293,7 @@ if __name__ == '__main__':
     gpu_id = 0
 
     # Load model.
-    yolo = YOLODetector(model_path, gpu_id=gpu_id, conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5)
+    yolo = YOLODetector(model_path, gpu_id=gpu_id, conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.35)
 
     # Load image.
     image = cv2.imread(image_path)
