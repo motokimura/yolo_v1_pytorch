@@ -1,219 +1,195 @@
+
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+from collections import defaultdict
+from tqdm import tqdm
 import numpy as np
+import cv2
 
-from detect import YOLODetector
+from detect import YOLODetector, VOC_CLASS_BGR
 
-VOC_CLASSES = (    # always index 0
-    'aeroplane', 'bicycle', 'bird', 'boat',
-    'bottle', 'bus', 'car', 'cat', 'chair',
-    'cow', 'diningtable', 'dog', 'horse',
-    'motorbike', 'person', 'pottedplant',
-    'sheep', 'sofa', 'train', 'tvmonitor')
 
-Color = [[0, 0, 0],
-                    [128, 0, 0],
-                    [0, 128, 0],
-                    [128, 128, 0],
-                    [0, 0, 128],
-                    [128, 0, 128],
-                    [0, 128, 128],
-                    [128, 128, 128],
-                    [64, 0, 0],
-                    [192, 0, 0],
-                    [64, 128, 0],
-                    [192, 128, 0],
-                    [64, 0, 128],
-                    [192, 0, 128],
-                    [64, 128, 128],
-                    [192, 128, 128],
-                    [0, 64, 0],
-                    [128, 64, 0],
-                    [0, 192, 0],
-                    [128, 192, 0],
-                    [0, 64, 128]]
+def compute_average_precision(recall, precision):
+    """ Compute AP for one class.
+    Args:
+        recall: (numpy array) recall values of precision-recall curve.
+        precision: (numpy array) precision values of precision-recall curve.
+    Returns:
+        (float) average precision (AP) for the class.
+    """
+    # AP (AUC of precision-recall curve) computation using all points interpolation.
+    # For mAP computation, you can find a great explaination below.
+    # https://github.com/rafaelpadilla/Object-Detection-Metrics
 
-def voc_ap(rec,prec,use_07_metric=False):
-    if use_07_metric:
-        # 11 point metric
-        ap = 0.
-        for t in np.arange(0.,1.1,0.1):
-            if np.sum(rec >= t) == 0:
-                p = 0
-            else:
-                p = np.max(prec[rec>=t])
-            ap = ap + p/11.
+    recall = np.concatenate(([0.0], recall, [1.0]))
+    precision = np.concatenate(([0.0], precision, [0.0]))
 
-    else:
-        # correct ap caculation
-        mrec = np.concatenate(([0.],rec,[1.]))
-        mpre = np.concatenate(([0.],prec,[0.]))
+    for i in range(precision.size - 1, 0, -1):
+        precision[i - 1] = max(precision[i -1], precision[i])
 
-        for i in range(mpre.size -1, 0, -1):
-            mpre[i-1] = np.maximum(mpre[i-1],mpre[i])
-
-        i = np.where(mrec[1:] != mrec[:-1])[0]
-
-        ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
+    ap = 0.0 # average precision (AUC of the precision-recall curve).
+    for i in range(precision.size - 1):
+        ap += (recall[i + 1] - recall[i]) * precision[i + 1]
 
     return ap
 
-def voc_eval(preds,target,VOC_CLASSES=VOC_CLASSES,threshold=0.5,use_07_metric=False,):
-    '''
-    preds {'cat':[[image_id,confidence,x1,y1,x2,y2],...],'dog':[[],...]}
-    target {(image_id,class):[[],]}
-    '''
-    aps = []
-    for i,class_ in enumerate(VOC_CLASSES):
-        pred = preds[class_] #[[image_id,confidence,x1,y1,x2,y2],...]
-        if len(pred) == 0: #如果这个类别一个都没有检测到的异常情况
-            ap = -1
-            print('---class {} ap {}---'.format(class_,ap))
-            aps += [ap]
+
+def evaluate(preds,targets,class_names,threshold=0.5):
+    """ Compute mAP metric.
+    Args:
+        preds: (dict) {class_name_1: [[filename, prob, x1, y1, x2, y2], ...], class_name_2: [[], ...], ...}.
+        targets: (dict) {(filename, class_name): [[x1, y1, x2, y2], ...], ...}.
+        class_names: (list) list of class names.
+        threshold: (float) threshold for IoU to separate TP from FP.
+    Returns:
+        (list of float) list of average precision (AP) for each class.
+    """
+    # For mAP computation, you can find a great explaination below.
+    # https://github.com/rafaelpadilla/Object-Detection-Metrics
+
+    aps = [] # list of average precisions (APs) for each class.
+
+    for class_name in class_names:
+        class_preds = preds[class_name] # all predicted objects for this class.
+
+        if len(class_preds) == 0:
+            ap = 0.0 # if no box detected, assigne 0 for AP of this class.
+            print('---class {} AP {}---'.format(class_name, ap))
+            aps.append(ap)
             break
-        #print(pred)
-        image_ids = [x[0] for x in pred]
-        confidence = np.array([float(x[1]) for x in pred])
-        BB = np.array([x[2:] for x in pred])
-        # sort by confidence
-        sorted_ind = np.argsort(-confidence)
-        sorted_scores = np.sort(-confidence)
-        BB = BB[sorted_ind, :]
-        image_ids = [image_ids[x] for x in sorted_ind]
 
-        # go down dets and mark TPs and FPs
-        npos = 0.
-        for (key1,key2) in target:
-            if key2 == class_:
-                npos += len(target[(key1,key2)]) #统计这个类别的正样本，在这里统计才不会遗漏
-        nd = len(image_ids)
-        tp = np.zeros(nd)
-        fp = np.zeros(nd)
-        for d,image_id in enumerate(image_ids):
-            bb = BB[d] #预测框
-            if (image_id,class_) in target:
-                BBGT = target[(image_id,class_)] #[[],]
-                for bbgt in BBGT:
-                    # compute overlaps
-                    # intersection
-                    ixmin = np.maximum(bbgt[0], bb[0])
-                    iymin = np.maximum(bbgt[1], bb[1])
-                    ixmax = np.minimum(bbgt[2], bb[2])
-                    iymax = np.minimum(bbgt[3], bb[3])
-                    iw = np.maximum(ixmax - ixmin + 1., 0.)
-                    ih = np.maximum(iymax - iymin + 1., 0.)
-                    inters = iw * ih
+        image_fnames = [pred[0]  for pred in class_preds]
+        probs        = [pred[1]  for pred in class_preds]
+        boxes        = [pred[2:] for pred in class_preds]
 
-                    union = (bb[2]-bb[0]+1.)*(bb[3]-bb[1]+1.) + (bbgt[2]-bbgt[0]+1.)*(bbgt[3]-bbgt[1]+1.) - inters
-                    if union == 0:
-                        print(bb,bbgt)
-                    
-                    overlaps = inters/union
-                    if overlaps > threshold:
-                        tp[d] = 1
-                        BBGT.remove(bbgt) #这个框已经匹配到了，不能再匹配
-                        if len(BBGT) == 0:
-                            del target[(image_id,class_)] #删除没有box的键值
+        # Sort lists by probs.
+        sorted_idxs = np.argsort(probs)[::-1]
+        image_fnames = [image_fnames[i] for i in sorted_idxs]
+        boxes        = [boxes[i]        for i in sorted_idxs]
+
+        # Compute total number of ground-truth boxes. This is used to compute precision later.
+        num_gt_boxes = 0
+        for (filename_gt, class_name_gt) in targets:
+            if class_name_gt == class_name:
+                num_gt_boxes += len(targets[filename_gt, class_name_gt])
+
+        # Go through sorted lists, classifying each detection into TP or FP.
+        num_detections = len(boxes)
+        tp = np.zeros(num_detections) # if detection `i` is TP, tp[i] = 1. Otherwise, tp[i] = 0.
+        fp = np.ones(num_detections)  # if detection `i` is FP, fp[i] = 1. Otherwise, fp[i] = 0.
+
+        for det_idx, (filename, box) in enumerate(zip(image_fnames, boxes)):
+
+            if (filename, class_name) in targets:
+                boxes_gt = targets[(filename, class_name)]
+                for box_gt in boxes_gt:
+                    # Compute IoU b/w/ predicted and groud-truth boxes.
+                    inter_x1 = max(box_gt[0], box[0])
+                    inter_y1 = max(box_gt[1], box[1])
+                    inter_x2 = min(box_gt[2], box[2])
+                    inter_y2 = min(box_gt[3], box[3])
+                    inter_w = max(0.0, inter_x2 - inter_x1 + 1.0)
+                    inter_h = max(0.0, inter_y2 - inter_y1 + 1.0)
+                    inter = inter_w * inter_h
+
+                    area_det = (box[2] - box[0] + 1.0) * (box[3] - box[1] + 1.0)
+                    area_gt = (box_gt[2] - box_gt[0] + 1.0) * (box_gt[3] - box_gt[1] + 1.0)
+                    union = area_det + area_gt - inter
+
+                    iou = inter / union
+                    if iou >= threshold:
+                        tp[det_idx] = 1.0
+                        fp[det_idx] = 0.0
+
+                        boxes_gt.remove(box_gt) # each ground-truth box can be assigned for only one detected box.
+                        if len(boxes_gt) == 0:
+                            del targets[(filename, class_name)] # remove empty element from the dictionary.
+
                         break
-                fp[d] = 1-tp[d]
-            else:
-                fp[d] = 1
-        fp = np.cumsum(fp)
-        tp = np.cumsum(tp)
-        rec = tp/float(npos)
-        prec = tp/np.maximum(tp + fp, np.finfo(np.float64).eps)
-        #print(rec,prec)
-        ap = voc_ap(rec, prec, use_07_metric)
-        print('---class {} ap {}---'.format(class_,ap))
-        aps += [ap]
-    print('---map {}---'.format(np.mean(aps)))
 
-def test_eval():
-    preds = {'cat':[['image01',0.9,20,20,40,40],['image01',0.8,20,20,50,50],['image02',0.8,30,30,50,50]],'dog':[['image01',0.78,60,60,90,90]]}
-    target = {('image01','cat'):[[20,20,41,41]],('image01','dog'):[[60,60,91,91]],('image02','cat'):[[30,30,51,51]]}
-    voc_eval(preds,target,VOC_CLASSES=['cat','dog'])
+            else:
+                pass # this detection is FP.
+
+        # Compute AP from `tp` and `fp`.
+        tp_cumsum = np.cumsum(tp)
+        fp_cumsum = np.cumsum(fp)
+
+        eps = np.finfo(np.float64).eps
+        precision = tp_cumsum / np.maximum(tp_cumsum + fp_cumsum, eps)
+        recall = tp_cumsum / float(num_gt_boxes)
+
+        ap = compute_average_precision(recall, precision)
+        print('---class {} AP {}---'.format(class_name, ap))
+        aps.append(ap)
+
+    # Compute mAP by averaging APs for all classes.
+    print('---mAP {}---'.format(np.mean(aps)))
+
+    return aps
+
 
 if __name__ == '__main__':
-    #test_eval()
-    #from predict import *
-    from collections import defaultdict
-    from tqdm import tqdm
-    import cv2
+    # Path to the yolo weight to test.
+    model_path = 'weights/yolo/model_best.pth'
+    # GPU device on which yolo is loaded.
+    gpu_id = 0
+    # Path to label file.
+    label_path = 'data/voc2007test.txt'
+    # Path to image dir.
+    image_dir = 'data/VOC_allimgs/'
 
-    target =  defaultdict(list)
+
+    voc_class_names = list(VOC_CLASS_BGR.keys())
+    targets = defaultdict(list)
     preds = defaultdict(list)
-    image_list = [] #image path list
 
-    f = open('data/voc2007test.txt')
-    lines = f.readlines()
-    file_list = []
+
+    print('Preparing ground-truth data...')
+
+    # Load annotations from label file.
+    annotations = []
+    with open(label_path, 'r') as f:
+        lines = f.readlines()
     for line in lines:
-        splited = line.strip().split()
-        file_list.append(splited)
-    f.close()
-    print('---prepare target---')
-    for index,image_file in enumerate(file_list):
-        image_id = image_file[0]
+        anno = line.strip().split()
+        annotations.append(anno)
 
-        image_list.append(image_id)
-        num_obj = (len(image_file) - 1) // 5
-        for i in range(num_obj):
-            x1 = int(image_file[1+5*i])
-            y1 = int(image_file[2+5*i])
-            x2 = int(image_file[3+5*i])
-            y2 = int(image_file[4+5*i])
-            c = int(image_file[5+5*i])
-            class_name = VOC_CLASSES[c]
-            target[(image_id,class_name)].append([x1,y1,x2,y2])
-    #
-    #start test
-    #
-    print('---start test---')
-    # model = vgg16_bn(pretrained=False)
-    #model = resnet50()
-    # model.classifier = nn.Sequential(
-    #             nn.Linear(512 * 7 * 7, 4096),
-    #             nn.ReLU(True),
-    #             nn.Dropout(),
-    #             #nn.Linear(4096, 4096),
-    #             #nn.ReLU(True),
-    #             #nn.Dropout(),
-    #             nn.Linear(4096, 1470),
-    #         )
-    #model.load_state_dict(torch.load('best.pth'))
-    #model.eval()
-    #model.cuda()
-    yolo = YOLODetector('weights/yolo/model_best.pth', conf_thresh=-1.0, prob_thresh=-1.0, nms_thresh=0.45)
-    count = 0
-    for image_path in tqdm(image_list):
-        #result = predict_gpu(model,image_path,root_path='/home/xzh/data/VOCdevkit/VOC2012/allimgs/') #result[[left_up,right_bottom,class_name,image_path],]
-        #print(image_path)
-        image_path_ = os.path.join('data/VOC_allimgs/', image_path)
-        image = cv2.imread(image_path_)
+    # Prepare ground-truth data.
+    image_fnames = []
+    for anno in annotations:
+        filename = anno[0]
+        image_fnames.append(filename)
+
+        num_boxes = (len(anno) - 1) // 5
+        for b in range(num_boxes):
+            x1 = int(anno[5*b + 1])
+            y1 = int(anno[5*b + 2])
+            x2 = int(anno[5*b + 3])
+            y2 = int(anno[5*b + 4])
+
+            class_label = int(anno[5*b + 5])
+            class_name = voc_class_names[class_label]
+
+            targets[(filename, class_name)].append([x1, y1, x2, y2])
+
+
+    print('Predicting...')
+
+    # Load YOLO model.
+    yolo = YOLODetector(model_path, gpu_id=gpu_id, conf_thresh=-1.0, prob_thresh=-1.0, nms_thresh=0.45)
+
+    # Detect objects with the model.
+    for filename in tqdm(image_fnames):
+        image_path = os.path.join(image_dir, filename)
+        image = cv2.imread(image_path)
+
         boxes, class_names, probs = yolo.detect(image)
         for box, class_name, prob in zip(boxes, class_names, probs):
             x1y1, x2y2 = box
             x1, y1 = int(x1y1[0]), int(x1y1[1])
             x2, y2 = int(x2y2[0]), int(x2y2[1])
-            preds[class_name].append([image_path,prob,x1,y1,x2,y2])
-            #print(preds)
-        #for (x1,y1),(x2,y2),class_name,image_id,prob in result: #image_id is actually image_path
-        #    preds[class_name].append([image_id,prob,x1,y1,x2,y2])
-        # print(image_path)
-        # image = cv2.imread('/home/xzh/data/VOCdevkit/VOC2012/allimgs/'+image_path)
-        # for left_up,right_bottom,class_name,_,prob in result:
-        #     color = Color[VOC_CLASSES.index(class_name)]
-        #     cv2.rectangle(image,left_up,right_bottom,color,2)
-        #     label = class_name+str(round(prob,2))
-        #     text_size, baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
-        #     p1 = (left_up[0], left_up[1]- text_size[1])
-        #     cv2.rectangle(image, (p1[0] - 2//2, p1[1] - 2 - baseline), (p1[0] + text_size[0], p1[1] + text_size[1]), color, -1)
-        #     cv2.putText(image, label, (p1[0], p1[1] + baseline), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, 8)
+            preds[class_name].append([filename, prob, x1, y1, x2, y2])
 
-        # cv2.imwrite('testimg/'+image_path,image)
-        # count += 1
-        # if count == 100:
-        #     break
-    
-    print('---start evaluate---')
-    voc_eval(preds,target,VOC_CLASSES=VOC_CLASSES)
+
+    print('Evaluate the detection result...')
+
+    evaluate(preds, targets, class_names=voc_class_names)
