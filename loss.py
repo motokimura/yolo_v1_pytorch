@@ -114,16 +114,16 @@ class Loss(nn.Module):
             pred_xyxy = Variable(torch.FloatTensor(pred.size())) # [B, 5=len([x1, y1, x2, y2, conf])]
             # Because (center_x,center_y)=pred[:, 2] and (w,h)=pred[:,2:4] are normalized for cell-size and image-size respectively,
             # rescale (center_x,center_y) for the image-size to compute IoU correctly.
-            pred_xyxy[:,  :2] = pred[:, 2]/float(S) - 0.5 * pred[:, 2:4]
-            pred_xyxy[:, 2:4] = pred[:, 2]/float(S) + 0.5 * pred[:, 2:4]
+            pred_xyxy[:,  :2] = pred[:, :2]/float(S) - 0.5 * pred[:, 2:4]
+            pred_xyxy[:, 2:4] = pred[:, :2]/float(S) + 0.5 * pred[:, 2:4]
 
             target = bbox_target[i] # target bbox at i-th cell. Because target boxes contained by each cell are identical in current implementation, enough to extract the first one.
             target = bbox_target[i].view(-1, 5) # target bbox at i-th cell, [1, 5=len([x, y, w, h, conf])]
             target_xyxy = Variable(torch.FloatTensor(target.size())) # [1, 5=len([x1, y1, x2, y2, conf])]
             # Because (center_x,center_y)=target[:, 2] and (w,h)=target[:,2:4] are normalized for cell-size and image-size respectively,
             # rescale (center_x,center_y) for the image-size to compute IoU correctly.
-            target_xyxy[:,  :2] = target[:, 2]/float(S) - 0.5 * target[:, 2:4]
-            target_xyxy[:, 2:4] = target[:, 2]/float(S) + 0.5 * target[:, 2:4]
+            target_xyxy[:,  :2] = target[:, :2]/float(S) - 0.5 * target[:, 2:4]
+            target_xyxy[:, 2:4] = target[:, :2]/float(S) + 0.5 * target[:, 2:4]
 
             iou = self.compute_iou(pred_xyxy[:, :4], target_xyxy[:, :4]) # [B, 1]
             max_iou, max_index = iou.max(0)
